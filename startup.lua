@@ -7,7 +7,7 @@ local vers = "0.1T"
 --Code on https://github.com/MavricMC/CC-Pos--
 
 --os.pullEvent = os.pullEventRaw --Prevent program termination
-os.loadAPI("items.lua") --Long list of products is stored seperate
+os.loadAPI("pos/items.lua") --Long list of products is stored seperate
 
 --Settings--
 local configButtons = {}
