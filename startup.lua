@@ -1,4 +1,4 @@
---Point os sales system--
+--Point of sales system--
 
 local vers = "0.1T"
 
