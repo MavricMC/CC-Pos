@@ -466,9 +466,9 @@ function checkSearch(searched)
 end
 
 --Start Program
-modem = peripheral.wrap(modemSide)
-modem.open(mainC)
-clearScreenRem(true)
+--modem = peripheral.wrap(modemSide)
+--modem.open(mainC)
+--clearScreenRem(true)
 term.setCursorBlink(true)
 clearScreen()
 drawMainButtons()
