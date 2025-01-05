@@ -1,6 +1,6 @@
 --Point of sales system--
 
-local vers = "0.2"
+local vers = "0.1"
 
 --[[Todo
 -Add price indicator when purchasing
