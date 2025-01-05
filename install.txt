@@ -1,5 +1,13 @@
 pos
 MavricMC/CC-Pos/main/startup.lua
 startup.lua
+MavricMC/CC-Pos/main/.settings
+.settings
 MavricMC/CC-Pos/main/items.lua
 pos/items.lua
+MavricMC/CC-Pos/main/json.lua
+pos/json.lua
+MavricMC/CC-Pos/main/users.lua
+pos/users.lua
+MavricMC/CC-Pos/main/MPNLogo.nfp
+pos/MPNLogo.nfp
