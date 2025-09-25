@@ -1,21 +1,23 @@
 --Point of sales system--
 
-local vers = "0.1"
+local vers = "0.1T"
 
 --[[Todo
--Add price indicator when purchasing
+-Add price indicator when purchasing --Done
+-Add timeout to transaction pending --Done, add to other bank software
 -Add history page
 -Add manager approval logic
 -Make comments way better
 -Make way for config to affect price
--Add negative support for config 0
--Make config 0 max and min check better (Check value not just length)
+-Add negative support for config D
+-Make config D max and min check better (Check value not just length)
 -Size config using larger of minimum and maximum
--Add timeout to transaction pending --Done, add to other bank software
--record all login and log-out attempts
+-Record all login and log-out attempts
 -Make items list a centralized server
 -Make items live updatable
--Add current stock information
+-Add current wharehouse stock information
+-update utf8.char() with "\134" but correct numbers
+-Make backspace when editing new exit when quantity is nil or zero as doesnt leave 0 quantity item in list (Because editing new)
 ]]
 
 --Made by Mavric--
@@ -37,7 +39,7 @@ local mainC = 15
 local playerC = 20
 local backgroundColor = colors.black
 local salesTax = 0.15 --0.15 = 15%
-local addTax = false --false = remove sales tax from price of the item to calculate subtotal, true = adds the sales tax onto the price of the item to get total
+local addTax = false --false = removes sales tax from price of the item to calculate subtotal, true = adds the sales tax onto the price of the item to get total (USA)
 local approvalPrice = 1000 --If the total price is greater it requires manager approval
 local approvalQuantity = 100 --If the total quantity is greater it requires manager approval
 local approvalFree = true --If manager approval is required when the total price is zero
@@ -555,6 +557,9 @@ function drawPinRem(ID)
     cursorRem(1, 2)
     writeRem("ID:")
     writeRem(ID)
+    cursorRem(1, 3)
+    writeRem("$")
+    writeRem(total)
     cursorRem(20, 13)
     textRem(1)
     writeRem("PIN:")
@@ -893,7 +898,7 @@ while true do
                         mode = 2
                         editing[1] = searchIndex
                         editing[2] = true --Singify that user is editing item not yet in order
-                        editing[3] = false --Unused
+                        editing[3] = {} --Unused
                         for i = 4, table.maxn(items.itemList[searchIndex]) do
                             if items.itemList[searchIndex][i][1] == 0 then
                                 editing[i] = {items.itemList[searchIndex][i][2], false}
@@ -1046,12 +1051,13 @@ while true do
             if (checkX(event[3], event[4])) then
                 clearScreenRem(false, false)
                 drawPayment(false)
+                local payText = string.format("Transaction cancelled: $%d", total)
                 backgroundRem(backgroundColor)
                 textRem(colors.white)
-                writeCenterRem("Transaction cancelled", 13)
+                writeCenterRem(payText, 13)
                 term.setBackgroundColor(backgroundColor)
                 term.setTextColor(colors.white)
-                writeCenter("Transaction cancelled", 13)
+                writeCenter(payText, 13)
                 mode = lastMode
                 sleep(3)
                 clearScreenRem(false, false)
@@ -1193,37 +1199,28 @@ while true do
                             printError("Clear history not implemented")
                         end
                     elseif v[1] == "Pay" and table.maxn(order) > 0 then
-                        if mode == 1 or mode == 2 then
-                            if mode == 2 and not editing[2] then --Ignore check if editing new input as its not in the list yet
-                                if items.itemList[editing[1]][3] then
-                                    if editing[4][1] ~= "" then --prevent nil error with tonumber
-                                        if tonumber(editing[4][1]) ~= 0 then --Cant pay while editing has 0 quantity
-                                            lastMode = mode
-                                            mode = 3
-                                            term.setCursorBlink(false)
-                                            drawPayment(true)
-                                            clearScreenRem(true, true)
-                                            id = 0
-                                            pin = ""
-                                            isPin = false
-                                        end
+                        if mode ==1 or mode == 2 then
+                            local pay = true
+                            if mode == 2 and not editing[2] and items.itemList[editing[1]][3] then --Currently editing item in list with editable quantity. Cant have 0 or nil quantity with set quantity and items not yet in list arent part of price
+                                if editing[4][1] ~= "" then --prevent nil error with tonumber
+                                    if tonumber(editing[4][1]) == 0 then --Cant pay while editing has 0 quantity
+                                        pay = false
                                     end
                                 else
-                                    lastMode = mode
-                                    mode = 3
-                                    term.setCursorBlink(false)
-                                    drawPayment(true)
-                                    clearScreenRem(true, true)
-                                    id = 0
-                                    pin = ""
-                                    isPin = false
+                                    pay = false
                                 end
-                            else
+                            end
+
+                            if pay then
                                 lastMode = mode
                                 mode = 3
                                 term.setCursorBlink(false)
                                 drawPayment(true)
                                 clearScreenRem(true, true)
+                                local payText = string.format("Payment: $%d", total)
+                                backgroundRem(backgroundColor)
+                                textRem(colors.white)
+                                writeCenterRem(payText, 15)
                                 id = 0
                                 pin = ""
                                 isPin = false
@@ -1304,21 +1301,23 @@ while true do
                     if (isPin) then
                         clearScreenRem(true, true)
                         drawPayment(true)
-                        term.setBackgroundColor(backgroundColor)
-                        term.setTextColor(colors.white)
-                        writeCenter("Back to insert page", 13)
+                        local payText = string.format("Payment: $%d", total)
+                        backgroundRem(backgroundColor)
+                        textRem(colors.white)
+                        writeCenterRem(payText, 15)
                         id = 0
                         pin = ""
                         isPin = false
                     else
                         clearScreenRem(false, false)
                         drawPayment(false)
+                        local payText = string.format("Transaction cancelled: $%d", total)
                         backgroundRem(backgroundColor)
                         textRem(colors.white)
-                        writeCenterRem("Transaction cancelled", 13)
+                        writeCenterRem(payText, 13)
                         term.setBackgroundColor(backgroundColor)
                         term.setTextColor(colors.white)
-                        writeCenter("Transaction cancelled", 13)
+                        writeCenter(payText, 13)
                         mode = lastMode
                         sleep(3)
                         clearScreenRem(false, false)
@@ -1353,23 +1352,25 @@ while true do
                             if string.len(pin) == 5 then
                                 clearScreenRem(false, false)
                                 drawPayment(false)
+                                local payText = string.format("Processing transaction: $%d", total)
                                 backgroundRem(backgroundColor)
                                 textRem(colors.white)
-                                writeCenterRem("Processing transaction", 13)
+                                writeCenterRem(payText, 13)
                                 term.setBackgroundColor(backgroundColor)
                                 term.setTextColor(colors.white)
-                                writeCenter("Processing transaction", 13)
-                                local suc, res = withdraw(id, tonumber(total), atm, pin)
+                                writeCenter(payText, 13)
+                                local suc, res = withdraw(id, total, atm, pin)
                                 clearScreenRem(false, false)
                                 backgroundRem(backgroundColor)
                                 if (suc) then
                                     drawPayment(false)
+                                    payText = string.format("Transaction authorised: $%d", total)
                                     backgroundRem(backgroundColor)
                                     textRem(colors.white)
-                                    writeCenterRem("Transaction authorised", 13)
+                                    writeCenterRem(payText, 13)
                                     term.setBackgroundColor(backgroundColor)
                                     term.setTextColor(colors.white)
-                                    writeCenter("Transaction authorised", 13)
+                                    writeCenter(payText, 13)
                                     --[[local history = json.encode(order) -- Add more info like time, date, employee
                                     local hFile = fs.open(historyFile, "a")
                                     hFile.writeLine(history)
@@ -1397,6 +1398,10 @@ while true do
                                     isPin = false
                                     sleep(3)
                                     clearScreenRem(true, true)
+                                    payText = string.format("Payment: $%d", total)
+                                    backgroundRem(backgroundColor)
+                                    textRem(colors.white)
+                                    writeCenterRem(payText, 15)
                                     drawPayment(true)
                                 end
                             end
