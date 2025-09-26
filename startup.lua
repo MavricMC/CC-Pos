@@ -3,6 +3,7 @@
 local vers = "0.1T"
 
 --[[Todo
+-Fix term.clearLine() there is no Y pos argument, it clears the current row selected with term.setCursorPos()
 -Add price indicator when purchasing --Done
 -Add timeout to transaction pending --Done, add to other bank software
 -Add history page
