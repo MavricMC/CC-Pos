@@ -2,25 +2,6 @@
 
 local vers = "0.1T"
 
---[[Todo
--Fix term.clearLine() there is no Y pos argument, it clears the current row selected with term.setCursorPos()
--Add price indicator when purchasing --Done
--Add timeout to transaction pending --Done, add to other bank software
--Add history page
--Add manager approval logic
--Make comments way better
--Make way for config to affect price
--Add negative support for config D
--Make config D max and min check better (Check value not just length)
--Size config using larger of minimum and maximum
--Record all login and log-out attempts
--Make items list a centralized server
--Make items live updatable
--Add current wharehouse stock information
--update utf8.char() with "\134" but correct numbers
--Make backspace when editing new exit when quantity is nil or zero as doesnt leave 0 quantity item in list (Because editing new)
-]]
-
 --Made by Mavric--
 --How to setup is on my youtube channel--
 --Code on https://github.com/MavricMC/CC-Pos--
@@ -32,23 +13,25 @@ os.loadAPI("/pos/json.lua")
 
 --Settings--
 local atm = "pos_1"
-local bankSide = "modem_0"
-local drive = "drive_0"
-local server = 0 --Server id
+local bankSide = "modem_8"
+local drive = "drive_16"
+local server = 28 --Server id
 local modemSide = "bottom"
+local logFile = "log"
 local mainC = 15
-local playerC = 20
+local mirrorC = 20
 local backgroundColor = colors.black
 local salesTax = 0.15 --0.15 = 15%
 local addTax = false --false = removes sales tax from price of the item to calculate subtotal, true = adds the sales tax onto the price of the item to get total (USA)
 local approvalPrice = 1000 --If the total price is greater it requires manager approval
 local approvalQuantity = 100 --If the total quantity is greater it requires manager approval
 local approvalFree = true --If manager approval is required when the total price is zero
+local bankTimeout = 10 --How many seconds the bank function will wait before timing out
 local searchResultsLength = 10
 local searchMaxLength = 18
 local searchMaxExtra = 4 --Extra max length added to suggestions vs search
 local mainButtons = {
-    {"Exit", 2, 16, colors.gray, colors.white}, --Text, lop left x and y, background color, text color/
+    {"Exit", 2, 16, colors.gray, colors.white}, --Text, lop left x and y, background color, text color
     {"History", 9, 16, colors.lightBlue, colors.white},
     {"Clear", 19, 16, colors.red, colors.white},
     {"Pay", 46, 16, colors.green, colors.white}
@@ -70,7 +53,7 @@ local typedLen = 0
 local searchResults = {} --Indexs for items in main list
 local order = {}
 local editing = {} --Index for the item in the main list and stored modified values
-local mode = 0 --0, login, 1 search, 2 modify item, 3 order history, 4 payment
+local mode = 0 --0, login, 1 search, 2 modify item, 3 payment, 4 order history, 5 history config view, 6 history extra info
 local lastMode = 1 --Stores whether the user was editing or searching when they clicked history or payment
 local total = 0 --Total calculated price
 local id = 0 --Id of card inserted
@@ -82,12 +65,17 @@ local isPassword = false
 local maxLength = 15 --Max length of both username and password
 local currentUser = 0 --Index of current user. Lua indexes start at 1 so 0 is no user
 local orderY = 1 --Which order item is displayed at the top
+local historyY = 1 --Which history item is displayed at the top
+local history = {}
+local historyOrderY = 1 --Which history order item is displayed at the top
+local historyIndex = 1 --Order in history list clicked
+local historyConfigIndex = 1 --Current item in history order clicked
 
 --Bank functions--
 function balance(account, ATM, pin)
     local msg = {"bal", account, ATM, pin}
     rednet.send(server, msg, "banking")
-    local send, mes, pro = rednet.receive("banking")
+    local send, mes, pro = rednet.receive("banking", bankTimeout)
     if not send then
         return false, "timeout"
     else
@@ -101,7 +89,7 @@ end
 function deposit(account, amount, ATM, pin)
     local msg = {"dep", account, amount, ATM, pin}
     rednet.send(server, msg, "banking")
-    local send, mes, pro = rednet.receive("banking")
+    local send, mes, pro = rednet.receive("banking", bankTimeout)
     if not send then
         return false, "timeout"
     else
@@ -115,7 +103,7 @@ end
 function withdraw(account, amount, ATM, pin)
     local msg = {"wit", account, amount, ATM, pin}
     rednet.send(server, msg, "banking")
-    local send, mes, pro = rednet.receive("banking", 5)
+    local send, mes, pro = rednet.receive("banking", bankTimeout)
     if not send then
         return false, "timeout"
     else
@@ -129,7 +117,7 @@ end
 function transfer(account, account2, amount, ATM, pin)
     local msg = {"tra", account, account2, amount, ATM, pin}
     rednet.send(server, msg, "banking")
-    local send, mes, pro = rednet.receive("banking")
+    local send, mes, pro = rednet.receive("banking", bankTimeout)
     if not send then
         return false, "timeout"
     else
@@ -140,7 +128,33 @@ function transfer(account, account2, amount, ATM, pin)
     return false, "oof"
 end
 
+function create(account, ATM, pin)
+    local msg = {"cre", account, ATM, pin}
+    rednet.send(server, msg, "banking")
+    local send, mes, pro = rednet.receive("banking", bankTimeout)
+    if not send then
+        return false, "timeout"
+    else
+        if mes[1] == "creR" then
+            return mes[2], mes[3]
+        end
+    end
+    return false, "oof"
+end
+
 --Other functions--
+function unlinkArray(array)
+    local output = {}
+    for k, v in pairs(array) do
+        if (type(v) == "table") then
+            output[k] = unlinkArray(v)
+        else
+            output[k] = v
+        end
+    end
+    return output
+end
+
 function lengthCheck(text, length, trimEnd)
     local textLength = string.len(text)
     if textLength > length then
@@ -210,33 +224,38 @@ function drawLogin()
     term.setCursorPos(22, 17)
     term.write("         ")
     drawX()
+
     term.setCursorBlink(true)
     term.setCursorPos(22, 14)
 end
 
+function drawButton(buttonArray)
+    term.setBackgroundColor(buttonArray[4])
+    term.setTextColor(buttonArray[4])
+    term.setCursorPos(buttonArray[2], buttonArray[3])
+    term.write("OO".. buttonArray[1])
+ 
+    term.setCursorPos(buttonArray[2], buttonArray[3] + 1)
+    term.write("O")
+    term.setTextColor(buttonArray[5])
+    term.write(buttonArray[1])
+    term.setTextColor(buttonArray[4])
+    term.write("O")
+ 
+    term.setCursorPos(buttonArray[2], buttonArray[3] + 2)
+    term.write("OO".. buttonArray[1])
+end
+
 function drawMainButtons()
     for _, v in pairs(mainButtons) do
-        term.setBackgroundColor(v[4])
-        term.setTextColor(v[4])
-        term.setCursorPos(v[2], v[3])
-        term.write("OO".. v[1])
-
-        term.setCursorPos(v[2], v[3] + 1)
-        term.write("O")
-        term.setTextColor(v[5])
-        term.write(v[1])
-        term.setTextColor(v[4])
-        term.write("O")
-
-        term.setCursorPos(v[2], v[3] + 2)
-        term.write("OO".. v[1])
+        drawButton(v)
     end
 end
 
 function drawOrderList()
     total = 0
     term.setTextColor(colors.white)
-    for i = orderY, table.maxn(order) do
+    for i = 1, table.maxn(order) do
         local k = i - orderY + 1 --Used a lot
         local price = ""
         if items.itemList[order[i][1]][3] then --Quantity is editable so is first config
@@ -261,8 +280,9 @@ function drawOrderList()
             end
         end
 
-        if k < 8 then
+        if k > 0 and k < 8 then
             term.setBackgroundColor(colors.blue)
+            term.setTextColor(colors.white)
             term.setCursorPos(28, 2 * k)
             term.write(utf8.char(7))
 
@@ -486,37 +506,42 @@ end
 
 function clearRem()
     local msg = {"clear"}
-    modem.transmit(playerC, mainC, msg)
+    modem.transmit(mirrorC, mainC, msg)
 end
 
 function lineRem(y)
     local msg = {"line", y}
-    modem.transmit(playerC, mainC, msg)
+    modem.transmit(mirrorC, mainC, msg)
 end
 
 function backgroundRem(color)
     local msg = {"background", color}
-    modem.transmit(playerC, mainC, msg)
+    modem.transmit(mirrorC, mainC, msg)
 end
 
 function cursorRem(x, y)
     local msg = {"cursor", x, y}
-    modem.transmit(playerC, mainC, msg)
+    modem.transmit(mirrorC, mainC, msg)
 end
 
 function textRem(color)
     local msg = {"text", color}
-    modem.transmit(playerC, mainC, msg)
+    modem.transmit(mirrorC, mainC, msg)
 end
 
 function writeRem(text)
     local msg = {"write", text}
-    modem.transmit(playerC, mainC, msg)
+    modem.transmit(mirrorC, mainC, msg)
+end
+
+function blinkRem(blink)
+    local msg = {"blink", blink}
+    modem.transmit(mirrorC, mainC, msg)
 end
 
 function picRem(picName, x, y)
     local msg = {"pic", picName, x, y}
-    modem.transmit(playerC, mainC, msg)
+    modem.transmit(mirrorC, mainC, msg)
 end
 
 function writeCenterRem(text, y)
@@ -563,7 +588,8 @@ function drawPinRem(ID)
     writeRem(total)
     cursorRem(20, 13)
     textRem(1)
-    writeRem("PIN:")
+    writeRem("PIN: ")
+    blinkRem(true)
 end
 
 function checkX(x, y)
@@ -689,11 +715,324 @@ function checkLogin(name, pass)
     return false
 end
 
+function drawHistory(historyMain, historyY)
+    term.setBackgroundColor(backgroundColor)
+    term.setTextColor(colors.yellow)
+    term.setCursorPos(1, 14)
+    term.write("-")
+    term.setTextColor(colors.white)
+    term.setCursorPos(1, 13)
+    term.write(utf8.char(30))
+    term.setCursorPos(1, 15)
+    term.write(utf8.char(31))
+
+    term.setCursorPos(3, 3)
+    term.write("Date")
+    term.setCursorPos(14, 3)
+    term.write("Time")
+    term.setCursorPos(23, 3)
+    term.write("Res")
+    term.setCursorPos(29, 3)
+    term.write("Total")
+    term.setCursorPos(40, 3)
+    term.write("Quanity")
+
+    local gray = false
+    local endNum = table.maxn(historyMain)
+    if endNum - historyY > 11 then
+        endNum = historyY + 11
+    end
+    for i = historyY, endNum do
+        local totalQuantity = 0
+        for i2 = 2, table.maxn(historyMain[i]) do
+            if historyMain[i][i2][3] then
+                totalQuantity = totalQuantity + historyMain[i][i2][4][2]
+            else
+                totalQuantity = totalQuantity + 1
+            end
+        end
+
+        local k = i - historyY + 1 --Used a lot
+        term.setBackgroundColor(colors.green)
+        term.setTextColor(colors.white)
+        term.setCursorPos(50, k + 3)
+        term.write(utf8.char(21))
+
+        term.setBackgroundColor(colors.blue)
+        term.setCursorPos(2, k + 3)
+        term.write(utf8.char(7))
+        
+        if (i % 2 == 0) then
+            term.setBackgroundColor(colors.gray)
+        else
+            term.setBackgroundColor(colors.black)
+        end
+        gray = not gray
+
+        term.write(string.format("%02d/", historyMain[i][1].date.day))
+        term.write(string.format("%02d/", historyMain[i][1].date.month))
+        term.write(historyMain[i][1].date.year)
+
+        term.write(string.format(" %02d:", historyMain[i][1].date.hour))
+        term.write(string.format("%02d:", historyMain[i][1].date.min))
+        term.write(string.format("%02d ", historyMain[i][1].date.sec))
+
+        if historyMain[i][1].result then
+            term.setTextColor(colors.green)
+            term.write("true  ")
+        else
+            term.setTextColor(colors.red)
+            term.write("false ")
+        end
+
+        term.write("                     ")
+
+        term.setCursorPos(29, k + 3)
+        term.setTextColor(colors.white)
+        term.write(string.format("$%d", historyMain[i][1].total))
+
+        term.setCursorPos(40, k + 3)
+        term.write("#")
+        term.write(totalQuantity)
+    end
+end
+
+--Modified draw code for history
+function drawOrderListHistory(historyArray, historyOrderY)
+    local total = 0
+    term.setTextColor(colors.white)
+    for i = 1, (table.maxn(historyArray) - 1) do
+        local k = i - historyOrderY + 1 --Used a lot
+        local price = ""
+        if historyArray[i + 1][3] then --Quantity is editable so is first config
+            if historyArray[1].addTax then
+                price = string.format("$%d",historyArray[i + 1][2] * historyArray[i + 1][4][2] * (1 + historyArray[1].salesTax))
+                totalH = historyArray[i + 1][2] * historyArray[i + 1][4][2] * (1 + historyArray[1].salesTax) + total
+            else
+                price = string.format("$%d",historyArray[i + 1][2] * historyArray[i + 1][4][2])
+                total = historyArray[i + 1][2] * historyArray[i + 1][4][2] + total
+            end
+        else --Quantity is not editable so is 1
+            if historyArray[1].addTax then
+                price = string.format("$%d",historyArray[i + 1][2] * (1 + historyArray[1].salesTax))
+                total = historyArray[i + 1][2] * (1 + historyArray[1].salesTax) + total
+            else
+                price = string.format("$%d",historyArray[i + 1][2])
+                total = historyArray[i + 1][2] + total
+            end
+        end
+
+        if k > 0 and k < 8 then
+            term.setBackgroundColor(colors.blue)
+            term.setTextColor(colors.white)
+            term.setCursorPos(28, 2 * k)
+            term.write(utf8.char(7))
+
+            term.setBackgroundColor(backgroundColor)
+            local toLong, results = lengthCheck(historyArray[i + 1][1], 20, true)
+            term.write(results)
+            if toLong then
+                term.setTextColor(colors.red)
+                term.write(utf8.char(16))
+            end
+            term.setTextColor(colors.yellow)
+            term.setCursorPos(29, 2 * k + 1)
+            term.write("#:")
+            term.setTextColor(colors.white)
+            if historyArray[i + 1][3] then --Quantity is editable so is first config
+                term.write(historyArray[i + 1][4][2])
+            else --Quantity is not editable so is 1
+                term.write(1)
+            end
+            
+            term.setTextColor(colors.yellow)
+            term.setCursorPos(49 - string.len(price), 2 * k + 1)
+            term.write(price)
+        end
+    end
+
+    local subtotal = string.format("$%d", total * (1 - historyArray[1].salesTax))
+    local tax = string.format("$%d", total * historyArray[1].salesTax)
+    local totalPrice = string.format("$%d", total)
+    term.setBackgroundColor(backgroundColor)
+    term.setTextColor(colors.yellow)
+    term.setCursorPos(28, 16)
+    term.write("Subtotal:")
+    term.setTextColor(colors.white)
+    term.write(subtotal)
+
+    term.setTextColor(colors.yellow)
+    term.setCursorPos(28, 17)
+    term.write("Tax:")
+    term.setTextColor(colors.white)
+    term.write(tax)
+
+    term.setTextColor(colors.yellow)
+    term.setCursorPos(28, 18)
+    term.write("Total:")
+    term.setTextColor(colors.white)
+    term.write(totalPrice)
+
+    term.setTextColor(colors.yellow)
+    term.setCursorPos(27, 14)
+    term.write("-")
+    term.setTextColor(colors.white)
+    term.setCursorPos(27, 13)
+    term.write(utf8.char(30))
+    term.setCursorPos(27, 15)
+    term.write(utf8.char(31))
+end
+
+function drawConfigHistory(historyArray, i)
+    i = i + 1 --Account for first index of array being order info
+    if (i > 1 and i <= table.maxn(historyArray)) then
+        local toLong, results = lengthCheck(historyArray[i][1], searchMaxLength, true)
+
+        term.setBackgroundColor(backgroundColor)
+        term.setTextColor(colors.yellow)
+        term.setCursorPos(2, 2)
+        term.write("Item: ")
+        term.setTextColor(colors.white)
+        term.write(results)
+        if toLong then
+            term.setTextColor(colors.red)
+            term.write(utf8.char(16))
+        end
+
+        local price = ""
+        if historyArray[1].addTax then
+            price = string.format("$%d", historyArray[i][2] * (1 + historyArray[1].salesTax))
+        else
+            price = string.format("$%d", (historyArray[i][2]))
+        end
+
+        term.setTextColor(colors.yellow)
+        term.setCursorPos(2, 3)
+        term.write("Price:")
+        term.setTextColor(colors.white)
+        term.write(price)
+
+        local totalPrice = ""
+        if historyArray[i][3] then --Quantity is editable so is first config
+            if historyArray[1].addTax then
+                totalPrice = string.format("$%d", historyArray[i][2] * historyArray[i][4][2] * (1 + historyArray[1].salesTax))
+            else
+                totalPrice = string.format("$%d", historyArray[i][2] * historyArray[i][4][2])
+            end
+        else --Quantity is not editable so is 1
+            if historyArray[1].addTax then
+                totalPrice = string.format("$%d", historyArray[i][2] * (1 + historyArray[1].salesTax))
+            else
+                totalPrice = string.format("$%d", historyArray[i][2])
+            end  
+        end
+        
+        term.setTextColor(colors.yellow)
+        term.setCursorPos(2, 14)
+        term.write("Total:")
+        term.setTextColor(colors.white)
+        term.write(totalPrice)
+
+        for i2 = 4, table.maxn(historyArray[i]) do
+            if historyArray[i][i2][1] == 0 then
+                term.setBackgroundColor(backgroundColor)
+                term.setTextColor(colors.yellow)
+                term.setCursorPos(configPos[i2 - 3][1], configPos[i2 - 3][2])
+                term.write(historyArray[i][i2][4])
+
+                term.setCursorPos(configPos[i2 - 3][1], configPos[i2 - 3][2] + 1)
+                term.write(historyArray[i][i2][3])
+
+                term.setBackgroundColor(colors.gray)
+                term.setTextColor(colors.white)
+                term.write(historyArray[i][i2][2])
+                term.setTextColor(colors.gray)
+                term.write(string.sub(historyArray[i][i2][6], string.len(historyArray[i][i2][2]) + 1, string.len(historyArray[i][i2][6])))
+
+                term.setBackgroundColor(colors.blue)
+                term.setTextColor(colors.white)
+                term.write(utf8.char(7))
+            elseif historyArray[i][i2][1] == 1 then
+                term.setBackgroundColor(backgroundColor)
+                term.setTextColor(colors.yellow)
+                term.setCursorPos(configPos[i2 - 3][1], configPos[i2 - 3][2])
+                term.write(historyArray[i][i2][4])
+                term.setTextColor(colors.white)
+                term.write(historyArray[i][i2][historyArray[i][i2][2] + 4])
+
+                term.setTextColor(colors.yellow)
+                term.setCursorPos(configPos[i2 - 3][1], configPos[i2 - 3][2] + 1)
+                term.write(historyArray[i][i2][3])
+
+                term.setBackgroundColor(colors.red)
+                term.setTextColor(colors.white)
+                term.write(string.sub(utf8.char(183), 2, 2))
+                term.setBackgroundColor(backgroundColor)
+                term.write(string.sub(utf8.char(183), 2, 2))
+                term.setBackgroundColor(colors.gray)
+                term.write(string.sub(utf8.char(183), 2, 2))
+                term.setBackgroundColor(backgroundColor)
+                term.write(string.sub(utf8.char(183), 2, 2))
+
+                term.setBackgroundColor(colors.green)
+                term.write(string.sub(utf8.char(183), 2, 2))
+            elseif historyArray[i][i2][1] == 2 then
+                term.setBackgroundColor(backgroundColor)
+                term.setTextColor(colors.yellow)
+                term.setCursorPos(configPos[i2 - 3][1], configPos[i2 - 3][2])
+                term.write(historyArray[i][i2][3])
+
+                term.setCursorPos(configPos[i2 - 3][1], configPos[i2 - 3][2] + 1)
+                term.setTextColor(colors.white)
+                if historyArray[i][i2][2] then
+                    term.setBackgroundColor(colors.gray)
+                    term.write("  ")
+                    term.setBackgroundColor(colors.green)
+                    term.write(utf8.char(7))
+                else
+                    term.setBackgroundColor(colors.red)
+                    term.write("o")
+                    term.setBackgroundColor(colors.gray)
+                    term.write("  ")
+                end
+            elseif historyArray[i][i2][1] == 3 then
+                term.setBackgroundColor(backgroundColor)
+                term.setTextColor(colors.yellow)
+                term.setCursorPos(configPos[i2 - 3][1], configPos[i2 - 3][2])
+                term.write(historyArray[i][i2][3])
+
+                term.setBackgroundColor(colors.red)
+                term.setTextColor(colors.white)
+                term.setCursorPos(configPos[i2 - 3][1], configPos[i2 - 3][2] + 1)
+                term.write("-")
+
+                term.setBackgroundColor(colors.gray)
+                if historyArray[i][i2][2] >= 0 then
+                    term.write(" ")
+                end
+
+                term.write(historyArray[i][i2][2])
+
+                term.setTextColor(colors.gray)
+                term.write(string.sub(historyArray[i][i2][6], string.len(historyArray[i][i2][2]), string.len(historyArray[i][i2][6])))
+                if historyArray[i][i2][2] < 0 then
+                    term.write(" ")
+                end
+
+                term.setBackgroundColor(colors.green)
+                term.setTextColor(colors.white)
+                term.write("+")
+            end
+        end
+    end
+end
+
 --Start Program
 modem = peripheral.wrap(modemSide)
 modem.open(mainC)
 rednet.open(bankSide)
 clearScreenRem(false, false)
+blinkRem(false)
 drawLogin()
 --redstone.setOutput("front", false)
 --redstone.setOutput("top", false)
@@ -1051,6 +1390,7 @@ while true do
         elseif mode == 3 then
             if (checkX(event[3], event[4])) then
                 clearScreenRem(false, false)
+                blinkRem(false)
                 drawPayment(false)
                 local payText = string.format("Transaction cancelled: $%d", total)
                 backgroundRem(backgroundColor)
@@ -1109,11 +1449,15 @@ while true do
                     end
                 end
 
-                for k, v in pairs(order) do
-                    if event[4] == 2 * k then
+                local endNum = table.maxn(order)
+                if endNum - orderY > 6 then
+                    endNum = orderY + 6
+                end
+                for i = orderY, endNum do
+                    if event[4] == 2 * (i - orderY + 1) then
                         if event[3] == 28 then
                             mode = 2
-                            editing = v
+                            editing = order[i]
                             editing[2] = false --Signify that the user is editing an item already in order
                             term.setCursorBlink(false)
                             clearScreen()
@@ -1121,13 +1465,13 @@ while true do
                             drawOrderList()
                             drawConfig()
                         elseif event[3] == 50 then
-                            if table.maxn(order) > 7 then
-                                if (orderY + 6) == table.maxn(order) then
-                                    orderY = orderY - 1
+                            if orderY > 1 then
+                                if endNum == table.maxn(order) then
+                                    orderY = orderY - 1 --Scroll up if removing last item and currently scrolled down
                                 end
                             end
-                            if editing == order[k] then --User deleted item currently being edited
-                                table.remove(order, k)
+                            if editing == order[i] then --User deleted item currently being edited
+                                table.remove(order, i)
                                 editing = {}
                                 mode = 1
                                 term.setCursorBlink(true)
@@ -1136,7 +1480,7 @@ while true do
                                 drawOrderList()
                                 drawSearch(0)
                             else
-                                table.remove(order, k)
+                                table.remove(order, i)
                                 clearScreen()
                                 drawMainButtons()
                                 drawOrderList()
@@ -1162,26 +1506,56 @@ while true do
                             password = ""
                             isPassword = false
                             drawLogin()
-                        elseif mode == 3 then --exit history
-                            --[[mode = lastMode
+                        elseif mode == 4 then --exit history
+                            mode = lastMode
+                            history = {}
+                            historyY = 1
                             if mode == 1 then
                                 clearScreen()
                                 drawMainButtons()
                                 drawOrderList()
                                 drawSearch(2)
+                                term.setCursorBlink(true)
                             else
                                 clearScreen()
                                 drawMainButtons()
                                 drawOrderList()
                                 drawConfig()
-                            end]]
-                            printError("Exit history")
+                            end
+                        elseif mode == 5 or mode == 6 then --exit history item or config view
+                            mode = 4
+                            historyOrderY = 1
+                            historyIndex = 1
+                            historyConfigIndex = 1
+                            clearScreen()
+                            drawButton(mainButtons[1]) --draw exit button
+                            drawHistory(history, historyY)
                         end
                     elseif v[1] == "History" then
                         if mode == 1 or mode == 2 then
-                            --lastMode = mode
-                            --mode = 3
-                            printError("History not implemented")
+                            lastMode = mode
+                            mode = 4
+
+                            --Get log file data
+                            history = {}
+                            historyY = 1
+                            logRead = fs.open("log", "r")
+                            if logRead ~= nil then
+                                local line = logRead.readLine()
+                                if line ~= nil then --prevent error decoding nil
+                                    repeat
+                                        --print(line)
+                                        table.insert(history, json.decode(line))
+                                        line = logRead.readLine()
+                                    until line == nil
+                                end
+                                logRead.close()
+                            end
+
+                            term.setCursorBlink(false)
+                            clearScreen()
+                            drawButton(mainButtons[1]) --draw exit button
+                            drawHistory(history, historyY)
                         end
                     elseif v[1] == "Clear" and table.maxn(order) > 0 then
                         if mode == 1 or mode == 2 then
@@ -1196,8 +1570,6 @@ while true do
                             drawMainButtons()
                             drawOrderList()
                             drawSearch(0)
-                        elseif mode == 3 then
-                            printError("Clear history not implemented")
                         end
                     elseif v[1] == "Pay" and table.maxn(order) > 0 then
                         if mode ==1 or mode == 2 then
@@ -1218,6 +1590,7 @@ while true do
                                 term.setCursorBlink(false)
                                 drawPayment(true)
                                 clearScreenRem(true, true)
+                                blinkRem(false)
                                 local payText = string.format("Payment: $%d", total)
                                 backgroundRem(backgroundColor)
                                 textRem(colors.white)
@@ -1276,6 +1649,85 @@ while true do
                     end
                 end
             end
+
+            if mode == 4 then
+                if event[3] == 1 then
+                    if event[4] == 13 then
+                        if historyY > 1 then
+                            historyY = historyY - 1
+                            clearScreen()
+                            drawButton(mainButtons[1]) --draw exit button
+                            drawHistory(history, historyY)
+                        end
+                    elseif event[4] == 15 then
+                        if (table.maxn(history) - historyY) > 11 then
+                            historyY = historyY + 1
+                            clearScreen()
+                            drawButton(mainButtons[1]) --draw exit button
+                            drawHistory(history, historyY)
+                        end
+                    end
+                elseif event[3] == 2 or event[3] == 50 then
+                    if event[4] > 3 and event[4] < 16 then
+                        historyIndex = event[4] + historyY - 4
+                        if historyIndex <= table.maxn(history) then
+                            if event[3] == 2 then
+                                mode = 5
+                                historyOrderY = 1
+                                clearScreen()
+                                drawButton(mainButtons[1]) --draw exit button
+                                drawOrderListHistory(history[historyIndex], historyOrderY) --array from log file to retive info, orderY
+                                drawConfigHistory(history[historyIndex], 1) --order item config to show (0 to print nothing), array from log file
+                            elseif event[3] == 50 then
+                                mode = 6
+                                clearScreen()
+                                drawButton(mainButtons[1]) --draw exit button
+                                term.setCursorPos(2, 3)
+                                term.setBackgroundColor(backgroundColor)
+                                term.setTextColor(colors.white)
+                                term.write("Extra info for index: ")
+                                term.write(historyIndex)
+                            end
+                        end
+                    end
+                end
+            end
+
+            if mode == 5 then
+                if event[3] == 27 then
+                    if event[4] == 13 then
+                        if historyOrderY > 1 then
+                            historyOrderY = historyOrderY - 1
+                            clearScreen()
+                            drawButton(mainButtons[1]) --draw exit button
+                            drawOrderListHistory(history[historyIndex], historyOrderY) --array from log file to retive info, orderY
+                            drawConfigHistory(history[historyIndex], historyConfigIndex) --order item config to show (0 to print nothing), array from log file
+                        end
+                    elseif event[4] == 15 then
+                        if (table.maxn(history[historyIndex]) - historyOrderY) > 11 then
+                            historyOrderY = historyOrderY + 1
+                            clearScreen()
+                            drawButton(mainButtons[1]) --draw exit button
+                            drawOrderListHistory(history[historyIndex], historyOrderY) --array from log file to retive info, orderY
+                            drawConfigHistory(history[historyIndex], historyConfigIndex) --order item config to show (0 to print nothing), array from log file
+                        end
+                    end
+                elseif event[3] == 28 then
+                    local endNum = table.maxn(history[historyIndex])
+                    if endNum - historyOrderY > 6 then
+                        endNum = historyOrderY + 6
+                    end
+                    for i = historyOrderY, endNum do
+                        if event[4] == 2 * (i - historyOrderY + 1) then
+                            historyConfigIndex = i
+                            clearScreen()
+                            drawButton(mainButtons[1]) --draw exit button
+                            drawOrderListHistory(history[historyIndex], historyOrderY) --array from log file to retive info, orderY
+                            drawConfigHistory(history[historyIndex], historyConfigIndex) --order item config to show (0 to print nothing), array from log file
+                        end
+                    end
+                end
+            end
         end
     elseif event[1] == "disk" then
         if mode == 3 then
@@ -1301,6 +1753,7 @@ while true do
                 if (checkX(event[5][3], event[5][4])) then
                     if (isPin) then
                         clearScreenRem(true, true)
+                        blinkRem(false)
                         drawPayment(true)
                         local payText = string.format("Payment: $%d", total)
                         backgroundRem(backgroundColor)
@@ -1311,6 +1764,7 @@ while true do
                         isPin = false
                     else
                         clearScreenRem(false, false)
+                        blinkRem(false)
                         drawPayment(false)
                         local payText = string.format("Transaction cancelled: $%d", total)
                         backgroundRem(backgroundColor)
@@ -1352,6 +1806,7 @@ while true do
                         elseif keyNum == 11 then
                             if string.len(pin) == 5 then
                                 clearScreenRem(false, false)
+                                blinkRem(false)
                                 drawPayment(false)
                                 local payText = string.format("Processing transaction: $%d", total)
                                 backgroundRem(backgroundColor)
@@ -1363,6 +1818,40 @@ while true do
                                 local suc, res = withdraw(id, total, atm, pin)
                                 clearScreenRem(false, false)
                                 backgroundRem(backgroundColor)
+
+                                --test--
+                                term.setBackgroundColor(backgroundColor)
+                                term.setTextColor(colors.white)
+                                term.clear()
+                                term.setCursorPos(1, 1)
+                                --mApproved is false because no approval logic
+                                local logArray =  {{ date = os.date("*t"), posVersion = vers, server = server, user = users.userList[currentUser][1], mApproved = false, card = id, total = total, location = atm, result = suc, response = res, salesTax = salesTax, addTax = addTax}}
+                                for k, v in pairs(order) do --Reconstruct the items with the editable data from the order
+                                    table.insert(logArray,  unlinkArray(items.itemList[v[1]]))
+                                    --printError(logArray[k + 1][1])
+                                    local start = 4
+                                    if items.itemList[v[1]][3] then --Quantity is editable so is first config
+                                        logArray[k + 1][4][2] = v[4][1]
+                                        start = 5 --Skip quanity config
+                                    end
+                                    local len = table.maxn(items.itemList[v[1]])
+                                    if (len > (start - 1)) then --Check that it had configurations
+                                        for i = start, len do
+                                            if items.itemList[v[1]][i][1] == 0 then
+                                                logArray[k + 1][i][2] = v[i][1] --Get the value and ignore the is edititing flag
+                                            elseif items.itemList[v[1]][i][1] > 0 and items.itemList[v[1]][i][1] < 4 then
+                                                logArray[k + 1][i][2] = v[i]
+                                            end
+                                        end
+                                    end
+                                end
+
+                                local logLine = json.encode(logArray)
+                                local log = fs.open(logFile, "a")
+                                log.writeLine(logLine)
+                                log.close()
+                                --test--
+
                                 if (suc) then
                                     drawPayment(false)
                                     payText = string.format("Transaction authorised: $%d", total)
@@ -1372,10 +1861,6 @@ while true do
                                     term.setBackgroundColor(backgroundColor)
                                     term.setTextColor(colors.white)
                                     writeCenter(payText, 13)
-                                    --[[local history = json.encode(order) -- Add more info like time, date, employee
-                                    local hFile = fs.open(historyFile, "a")
-                                    hFile.writeLine(history)
-                                    hFile.close()]]
                                     mode = 1
                                     sleep(3)
                                     clearScreenRem(false, false)
