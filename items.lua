@@ -29,7 +29,7 @@ itemList = {
     {"Banner Pattern (Globe)", 10, true, {0, "10", "#:", "Quantity", 1, 1000}, {1, 1, "%:", "ConfigA:", 0, 25, 50, 75, 100}, {1, 1, "%:", "ConfigA:", 0, 25, 50, 75, 100}, {1, 1, "%:", "ConfigA:", 0, 25, 50, 75, 100}, {1, 1, "%:", "ConfigA:", 0, 25, 50, 75, 100}, {1, 1, "%:", "ConfigA:", 0, 25, 50, 75, 100}},
     {"Banner Pattern (Skull Charge)", 10, true, {0, "10", "#:", "Quantity", 1, 1000}, {2, false, "Config B"}, {2, false, "Config B"}, {2, false, "Config B"}, {2, false, "Config B"}, {2, false, "Config B"}},
     {"Banner Pattern (Snout)", 10, true, {0, "10", "#:", "Quantity", 1, 1000}, {3, 0, "Config-C", 1, -10, 10}, {3, 0, "Config-C", 1, -10, 10}, {3, 0, "Config-C", 1, -10, 10}, {3, 0, "Config-C", 1, -10, 10}, {3, 0, "Config-C", 1, -10, 10}},
-    {"Banner Pattern (Thing)", 10, true, {0, "10", "#:", "Quantity", 1, 1000}, {0, "25", "&:", "ConfigD", 0, 50}, {0, "25", "&:", "ConfigD", 0, 50}, {0, "25", "&:", "ConfigD", -50, 50}, {0, "25", "&:", "ConfigD", 0, 50}, {0, "25", "&:", "ConfigD", 0, 50}},
+    {"Banner Pattern (Thing)", 10, true, {0, "10", "#:", "Quantity", 1, 1000}, {1, 1, "%:", "ConfigA:", 0, 25, 50, 75, 100}, {2, false, "Config B"}, {3, 0, "Config-C", 1, -10, 10}, {0, "25", "&:", "ConfigD", 0, 50}, {0, "25", "&:", "ConfigD", -50, 50}},
 
     {"Beetroot", 10, false}, --Extra to test search scroll
     {"Beetroot Seeds", 10, false},
