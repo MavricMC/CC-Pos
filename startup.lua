@@ -13,11 +13,11 @@ os.loadAPI("/pos/json.lua")
 
 --Settings--
 local atm = "pos_1"
-local bankSide = "modem_8"
-local drive = "drive_16"
-local server = 28 --Server id
+local bankSide = "modem_0"
+local drive = "drive_0"
+local server = 0 --Server id
 local modemSide = "bottom"
-local logFile = "log"
+local logFile = "/pos/log"
 local mainC = 15
 local mirrorC = 20
 local backgroundColor = colors.black
@@ -1539,12 +1539,11 @@ while true do
                             --Get log file data
                             history = {}
                             historyY = 1
-                            logRead = fs.open("log", "r")
+                            logRead = fs.open(logFile, "r")
                             if logRead ~= nil then
                                 local line = logRead.readLine()
                                 if line ~= nil then --prevent error decoding nil
                                     repeat
-                                        --print(line)
                                         table.insert(history, json.decode(line))
                                         line = logRead.readLine()
                                     until line == nil
