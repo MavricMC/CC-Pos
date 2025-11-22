@@ -1,4 +1,4 @@
---Pos Mirror version 0.1--
+--Pos Mirror version 0.2--
 
 os.pullEvent = os.pullEventRaw
 
@@ -25,6 +25,8 @@ while true do
             term.setTextColor(eventData[5][2])
         elseif eventData[5][1] == "write" then
             term.write(eventData[5][2])
+        elseif eventData[5][1] == "blink" then
+            term.setCursorBlink(eventData[5][2])
         elseif eventData[5][1] == "pic" then
             if eventData[5][2] == "logo" then
                 local pic = paintutils.loadImage("MPNLogo.nfp")
