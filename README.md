@@ -5,7 +5,7 @@
   <a href="https://github.com/MavricMC/CC-Pos/releases/"><img src="https://img.shields.io/github/release/MavricMC/CC-Pos.svg" alt="Release"/></a>
 </p>
 
-# `Add description here`
+CC:tweaked based point of sales system for use with my banking software.
 
 # How to install.
 
